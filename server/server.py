@@ -1,0 +1,66 @@
+"""Single-threaded TCP banking server multiplexed with ``select()``.
+
+Usage:
+    python server.py [--host 127.0.0.1] [--port 5050] [--start-date YYYY-MM-DD] [--verbose]
+"""
+from __future__ import annotations
+
+import argparse
+import logging
+from datetime import date
+
+from bank import Bank
+from server_utils import Console
+
+log = logging.getLogger("server")
+
+### Do not remove any of the existing functions or change their signatures. ###
+### You can add new functions and classes if needed. ###
+class Server:
+    def __init__(self, host: str, port: int, bank: Bank):
+        self.host = host
+        self.port = port
+
+        self.bank = bank
+        self.bank.announce_date()
+        
+        self.console = Console()
+
+    def server_loop(self) -> None:
+        """Main server loop for the bank server."""
+        # TODO implement this
+        pass
+
+
+
+### Do not touch anything below this line. ###
+def parse_date(text: str) -> date:
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected YYYY-MM-DD, got {text!r}") from None
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="select()-based socket banking server")
+    parser.add_argument("--host", default="")
+    parser.add_argument("--port", type=int, default=5050)
+    parser.add_argument("--start-date", type=parse_date, default=date.today(),
+                        help="first bank date, YYYY-MM-DD (default: today)")
+    parser.add_argument("--verbose", action="store_true", help="log every request and reply")
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
+                        format="%(asctime)s %(name)s: %(message)s", datefmt="%H:%M:%S")
+
+    bank = Bank(start_date=args.start_date)
+    server = Server(args.host, args.port, bank)
+    try:
+        server.server_loop()
+    except KeyboardInterrupt:
+        log.info("shutting down")
+        print("\nShutting down.", flush=True)
+
+
+if __name__ == "__main__":
+    main()
