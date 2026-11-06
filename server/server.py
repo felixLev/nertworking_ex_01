@@ -7,12 +7,20 @@ from __future__ import annotations
 
 import argparse
 import logging
+import random
+import string
 from datetime import date
 
 from bank import Bank
 from server_utils import Console
 
 log = logging.getLogger("server")
+
+class UserData:
+    # TODO: store password hash?
+    def __init__(self, username: str, password: str, user_id: str) -> None:
+        self.username = username
+        self.password = password
 
 ### Do not remove any of the existing functions or change their signatures. ###
 ### You can add new functions and classes if needed. ###
@@ -26,12 +34,25 @@ class Server:
         
         self.console = Console()
 
+        self.users = []
+
     def server_loop(self) -> None:
         """Main server loop for the bank server."""
         # TODO implement this
         pass
 
+    def _handle_create_user(self, username: str, password: str) -> str:
+        user_id = self._generate_user_id()
+        self.users.append(UserData(username, password, user_id))
+        return user_id
 
+    @staticmethod
+    def _generate_user_id():
+        """
+        generates a 10 letters user ID
+        TODO: maybe make sure the same uid isn't generated twice?
+        """
+        return ''.join(random.choices(string.ascii_letters + string.digits, k=10))
 
 ### Do not touch anything below this line. ###
 def parse_date(text: str) -> date:
