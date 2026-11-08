@@ -51,7 +51,7 @@ class Server:
             self.console.poll(self._on_advance_time_request)
             client_sock, _, _ = select.select([self.socket], [], [], 0.5)
             if self.socket in client_sock:
-                client_sockets.append(client_sock)
+                client_sockets.append(self.socket.accept())
             time.sleep(0.1)  # TODO: do we need this sleep?
 
     def _on_advance_time_request(self, user_input):
