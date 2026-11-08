@@ -7,8 +7,11 @@ with a user-facing message. Transport failures raise ``ConnectionError`` / ``OSE
 """
 from __future__ import annotations
 
+import socket
 from enum import Enum
 from typing import Callable, List, Optional, Tuple, Union
+
+from client.client_protocol_structs import build_register_user_payload
 
 
 class TxType(Enum):
@@ -45,8 +48,7 @@ class Connection:
     """
 
     def __init__(self):
-        # TODO implement this
-        pass
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     @property
     def connected(self) -> bool:
@@ -69,7 +71,8 @@ class Connection:
             OSError / ConnectionError: if the server cannot be reached.
         """
         # TODO implement this
-        pass
+        print("trying to connect")
+        self.socket.connect((host, port))
 
     def close(self) -> None:
         """Close the TCP connection if one is open. Safe to call more than once.
@@ -94,7 +97,7 @@ class Connection:
             RequestFailed: registration rejected (bad username/password, …).
             ConnectionError: connection lost.
         """
-        # TODO implement this
+        self.socket.send(build_register_user_payload(user, password))
         return "EXAMPLE_ID"
 
     def req_login(self, user: str, password: str, token: str) -> None:

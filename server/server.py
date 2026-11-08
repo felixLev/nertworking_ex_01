@@ -41,17 +41,22 @@ class Server:
 
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.bind((self.host, self.port))
+        self.socket.listen()
 
 
     def server_loop(self) -> None:
         """Main server loop for the bank server."""
         # TODO implement this
-        client_sockets = []
+        client_sockets = {} # maps client sockets to the data that was received by them but still wasn't processed
         while True:
             self.console.poll(self._on_advance_time_request)
-            client_sock, _, _ = select.select([self.socket], [], [], 0.5)
-            if self.socket in client_sock:
-                client_sockets.append(self.socket.accept())
+            reading_sockets, _, _ = select.select(list(client_sockets.keys()) + [self.socket], [], [], 0.5)
+            for sock in reading_sockets:
+                if sock == self.socket:
+                    client_sockets[self.socket.accept()] = ""
+                    print("client accepted")
+                else:
+                    pass
             time.sleep(0.1)  # TODO: do we need this sleep?
 
     def _on_advance_time_request(self, user_input):
