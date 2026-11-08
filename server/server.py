@@ -9,7 +9,10 @@ import argparse
 import logging
 import random
 import string
+import time
 from datetime import date
+import socket
+import select
 
 from bank import Bank
 from server_utils import Console
@@ -36,10 +39,24 @@ class Server:
 
         self.users = []
 
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.bind((self.host, self.port))
+
+
     def server_loop(self) -> None:
         """Main server loop for the bank server."""
         # TODO implement this
-        pass
+        client_sockets = []
+        while True:
+            self.console.poll(self._on_advance_time_request)
+            client_sock, _, _ = select.select([self.socket], [], [], 0.5)
+            if self.socket in client_sock:
+                client_sockets.append(client_sock)
+            time.sleep(0.1)  # TODO: do we need this sleep?
+
+    def _on_advance_time_request(self, user_input):
+        self.bank.clock.advance_day()
+        print("time advanced")
 
     def _handle_create_user(self, username: str, password: str) -> str:
         user_id = self._generate_user_id()
