@@ -20,3 +20,6 @@ class Bank:
         self.clock = SimTime(start_date=start_date)
     # TODO implement this class
     #      You can add new functions and classes if needed
+    def announce_date(self) -> None:
+        """Print the current simulated date"""
+        print(f"Current date is {self.clock.today()}")
