@@ -60,28 +60,31 @@ class Server:
                     log.info("Client accepted")
                     print("Client accepted")
                 else:
-                    data = sock.recv(1024) # Read incoming data from existing clients
-                    if not data: # Client disconnected - EOF
+                    try:
+                        data = protocol.receive_message(sock)
+                    except ConnectionResetError:
                         sock.close()
                         del client_sockets[sock]
                         log.info("Client disconnected")
                         print("Client disconnected")
+                        continue
+                    except ValueError as error:
+                        log.warning("Invalid message from client: %s", error)
+                        sock.close()
+                        del client_sockets[sock]
+                        continue
                     self.handle_client_request(sock, data)
 
 
     def handle_client_request(self, sock: socket, data: bytes):
-        action, payload = protocol.unpack_message(data)
-        print("server_loop action", action)
-        print("server_loop payload", payload)
-        response = None
+        action, payload = data
         match action:
             case protocol.RequestType.REGISTER_USER:
                 newusername = payload["username"] + payload["password"]
                 response = protocol.build_message(protocol.Status.SUCCESS, { "username": newusername })
             case _:
-                pass
-                # !error
-        sock.send(response)
+                response = protocol.build_message(protocol.Status.ERROR, { "error": "Unsupported action" })
+        sock.sendall(response)
 
 
     def _on_advance_time_request(self, user_input):

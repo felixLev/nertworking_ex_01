@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import socket
 from enum import Enum
+import struct
 from typing import Callable, List, Optional, Tuple, Union
 
 import client_protocol_structs as protocol
@@ -50,11 +51,13 @@ class Connection:
     def __init__(self):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
+
     @property
     def connected(self) -> bool:
         """Returns True if a TCP connection to the server is currently open."""
         # TODO implement this
         pass
+
 
     def connect(self, host: str, port: int) -> None:
         """Open a TCP connection to the bank server.
@@ -74,6 +77,7 @@ class Connection:
         print("trying to connect")
         self.socket.connect((host, port))
 
+
     def close(self) -> None:
         """Close the TCP connection if one is open. Safe to call more than once.
 
@@ -82,6 +86,7 @@ class Connection:
         """
         # TODO implement this
         pass
+
 
     def req_register(self, username: str, password: str) -> str:
         """Register a new account.
@@ -98,11 +103,9 @@ class Connection:
             ConnectionError: connection lost.
         """
         self.socket.send(protocol.build_register_user_payload(username, password))
-        response = self.socket.recv(1024)
-        status, data = protocol.unpack_message(response)
-        print("req_register status", status)
-        print("req_register data", data)
+        status, data = protocol.receive_message(self.socket)
         return data["username"]
+
 
     def req_login(self, user: str, password: str, token: str) -> None:
         """Log in to an existing account on this connection.
@@ -122,6 +125,7 @@ class Connection:
         # TODO implement this
         pass
 
+
     def req_logout(self) -> None:
         """Log out and close the connection.
 
@@ -130,6 +134,7 @@ class Connection:
         """
         # TODO implement this
         pass
+
 
     def req_get_balance(self) -> str:
         """Fetch the logged-in account's balance.
@@ -143,6 +148,7 @@ class Connection:
         """
         # TODO implement this
         return "0.00"
+
 
     def req_deposit(self, amount: str) -> str:
         """Deposit cash into the logged-in account.
@@ -160,6 +166,7 @@ class Connection:
         # TODO implement this
         return "0.00"
 
+
     def req_withdraw(self, amount: str) -> str:
         """Withdraw cash from the logged-in account (may go negative).
 
@@ -175,6 +182,7 @@ class Connection:
         """
         # TODO implement this
         return "0.00"
+
 
     def req_transfer(self, target: str, amount: str) -> str:
         """Transfer money to another account.
@@ -193,6 +201,7 @@ class Connection:
         # TODO implement this
         return "0.00"
 
+
     def req_schedule_so(self, target: str, amount: str, count: str) -> int:
         """Create a monthly standing order (first payment today).
 
@@ -210,6 +219,7 @@ class Connection:
         """
         # TODO implement this
         return 1
+
 
     def req_get_so_list(self) -> List[Tuple[int, str, str, str, int, Optional[int], str]]:
         """List active standing orders paid by the logged-in account.
@@ -236,6 +246,7 @@ class Connection:
         return [(1, "EXAMPLE_ID1", "EXAMPLE_NAME1", "0.00", 1, 2, "2026-11-12"),
                 (2, "EXAMPLE_ID2", "EXAMPLE_NAME2", "0.00", 4, None, "2026-11-20")]
 
+
     def req_cancel_so(self, so_id: Union[str, int]) -> None:
         """Cancel one of the logged-in account's standing orders.
 
@@ -251,6 +262,7 @@ class Connection:
         """
         # TODO implement this
         pass
+
 
     def req_loan(self, amount: str) -> Tuple[int, str]:
         """Take a loan (principal credited now; auto-repay after 30 bank days + 5%).
@@ -268,6 +280,7 @@ class Connection:
         """
         # TODO implement this
         return (1, "0.00")
+
 
     def req_get_loans(self) -> List[Tuple[int, str, str, str, str]]:
         """List unpaid loans for the logged-in account.
@@ -289,6 +302,7 @@ class Connection:
         """
         return [(1, "100.00", "105.00", "2026-11-12", "2026-11-12"),
                 (2, "200.00", "210.00", "2026-11-20", "2026-11-20")]
+
 
     def req_history(self, from_ts: Optional[float] = None,
                     to_ts: Optional[float] = None) -> List[Tuple[str, TxType, str, str, str, str, str]]:
