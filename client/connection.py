@@ -11,7 +11,7 @@ import socket
 from enum import Enum
 from typing import Callable, List, Optional, Tuple, Union
 
-from client.client_protocol_structs import build_register_user_payload
+from client_protocol_structs import build_register_user_payload
 
 
 class TxType(Enum):

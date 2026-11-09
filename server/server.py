@@ -46,18 +46,26 @@ class Server:
 
     def server_loop(self) -> None:
         """Main server loop for the bank server."""
-        # TODO implement this
         client_sockets = {} # maps client sockets to the data that was received by them but still wasn't processed
         while True:
             self.console.poll(self._on_advance_time_request)
-            reading_sockets, _, _ = select.select(list(client_sockets.keys()) + [self.socket], [], [], 0.5)
+            socket_list = list(client_sockets.keys()) + [self.socket]
+            reading_sockets, _, _ = select.select(socket_list, [], [], 1)
             for sock in reading_sockets:
                 if sock == self.socket:
-                    client_sockets[self.socket.accept()] = ""
-                    print("client accepted")
+                    accept_result = self.socket.accept()
+                    client_sockets[accept_result[0]] = ""
+                    log.info("Client accepted")
+                    print("Client accepted")
                 else:
-                    pass
-            time.sleep(0.1)  # TODO: do we need this sleep?
+                    data = sock.recv(1024) # Read incoming data from existing clients
+                    if not data: # Client disconnected - EOF
+                        sock.close()
+                        del client_sockets[sock]
+                        log.info("Client disconnected")
+                        print("Client disconnected")
+                    # TODO: handle data sent on sockets
+
 
     def _on_advance_time_request(self, user_input):
         self.bank.clock.advance_day()
