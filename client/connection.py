@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import socket
 from enum import Enum
-import struct
 from typing import Callable, List, Optional, Tuple, Union
 
 import client_protocol_structs as protocol
@@ -33,12 +32,9 @@ class TxType(Enum):
 
 # --------------------------Error Classes --------------------------
 # ---------Raise these for the GUI to react appropriately.----------
-class ProtocolError(Exception):
-    """The server sent something that cannot be parsed."""
+ProtocolError = protocol.ProtocolError
+RequestFailed = protocol.RequestFailed
 
-
-class RequestFailed(Exception):
-    """The server rejected the request. ``str(self)`` is safe to show to the user."""
 
 ### Do not remove any of the existing functions or change their signatures. ###
 ### You can add new functions and classes if needed. ###
@@ -102,9 +98,23 @@ class Connection:
             RequestFailed: registration rejected (bad username/password, …).
             ConnectionError: connection lost.
         """
-        self.socket.send(protocol.build_register_user_payload(username, password))
-        status, data = protocol.receive_message(self.socket)
+        try :
+            status, data = self._send_request(
+                protocol.build_register_user_payload(username, password)
+            )
+        except ProtocolError as e:
+            raise RequestFailed(str(e))
+        if not isinstance(data, dict) or not isinstance(data.get("username"), str):
+            raise RequestFailed("registration response is missing a string username")
         return data["username"]
+
+
+    def _send_request(self, message: bytes) -> tuple[protocol.Status, object]:
+        try:
+            self.socket.sendall(message)
+        except OSError as error:
+            raise ConnectionError(f"failed to send request: {error}") from error
+        return protocol.receive_message(self.socket)
 
 
     def req_login(self, user: str, password: str, token: str) -> None:

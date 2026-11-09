@@ -3,6 +3,16 @@ import socket
 import struct
 from enum import IntEnum
 
+MAX_MESSAGE_SIZE = 1024 * 1024
+
+
+class ProtocolError(Exception):
+    """The server sent something that cannot be parsed."""
+
+
+class RequestFailed(Exception):
+    """The server rejected the request. ``str(self)`` is safe to show to the user."""
+
 
 class RequestType(IntEnum):
     REGISTER_USER           = 1
@@ -20,39 +30,50 @@ class Status(IntEnum):
     ERROR                   = 2
 
 
-def recv_exact(sock: socket, n: int) -> bytes:
-    """Helper function to receive exactly n bytes from a TCP socket."""
+def recv_exact(sock: socket.socket, n: int) -> bytes:
+    """Read exactly n bytes, distinguishing a clean close from a truncated frame."""
     buffer = bytearray()
     while len(buffer) < n:
-        packet = sock.recv(n - len(buffer))
+        try:
+            packet = sock.recv(n - len(buffer))
+        except OSError as error:
+            raise ConnectionError(f"failed to receive message: {error}") from error
         if not packet:
-            # Connection closed by peer prematurely
-            raise ConnectionResetError("Socket closed before full payload was received")
+            if not buffer:
+                raise ConnectionError("peer closed the connection")
+            raise ConnectionError("peer closed the connection in the middle of a message")
         buffer.extend(packet)
     return bytes(buffer)
 
 
-def receive_message(sock: socket) -> bytes:
-    """Reads a complete length-prefixed JSON message from the socket."""
-    # 1. Read the fixed 4-byte header to determine payload size
+def receive_message(sock: socket.socket) -> tuple[Status, object]:
+    """Read, decode, and validate one length-prefixed server response."""
     raw_length = recv_exact(sock, 4)
     message_length = struct.unpack(">I", raw_length)[0]
-    # 2. Read exactly `message_length` bytes of JSON payload
+    if message_length == 0 or message_length > MAX_MESSAGE_SIZE:
+        raise ProtocolError(f"invalid message size: {message_length}")
     raw_payload = recv_exact(sock, message_length)
-    # 3. Safely decode and parse the full payload
-    message = json.loads(raw_payload.decode("utf-8"))
+    try:
+        message = json.loads(raw_payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ProtocolError(f"invalid JSON response: {error}") from error
     if not isinstance(message, dict):
-        raise ValueError("message JSON must be an object")
+        raise ProtocolError("message JSON must be an object")
     status_value = message.get("status")
+    data = message.get("data")
     if isinstance(status_value, bool) or not isinstance(status_value, int):
-        raise ValueError("message status must be a known status value")
+        raise ProtocolError("message status must be a known status value")
     try:
         status = Status(status_value)
     except ValueError as error:
-        raise ValueError(f"unknown message status: {status_value}") from error
+        raise ProtocolError(f"unknown message status: {status_value}") from error
+    if status is Status.ERROR:
+        if not isinstance(data, dict) or not isinstance(data.get("error"), str):
+            raise ProtocolError("server error response is missing an error message")
+        raise RequestFailed(data["error"])
     if "data" not in message:
-        raise ValueError("message is missing its data")
-    return status, message["data"]
+        raise ProtocolError("message is missing its data")
+    return status, data
 
 
 def build_message(action: RequestType, payload: dict[str, object]) -> bytes:

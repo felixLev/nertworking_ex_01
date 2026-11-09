@@ -55,35 +55,69 @@ class Server:
             reading_sockets, _, _ = select.select(socket_list, [], [], 1)
             for sock in reading_sockets:
                 if sock == self.socket:
-                    accept_result = self.socket.accept()
-                    client_sockets[accept_result[0]] = ""
+                    try:
+                        client_socket, _ = self.socket.accept()
+                    except OSError:
+                        log.exception("Failed to accept client connection")
+                        continue
+                    client_sockets[client_socket] = ""
                     log.info("Client accepted")
                     print("Client accepted")
                 else:
                     try:
                         data = protocol.receive_message(sock)
-                    except ConnectionResetError:
-                        sock.close()
-                        del client_sockets[sock]
-                        log.info("Client disconnected")
+                    except ConnectionError as error:
+                        self._close_client(sock, client_sockets)
+                        log.info("Client disconnected: %s", error)
                         print("Client disconnected")
                         continue
-                    except ValueError as error:
+                    except protocol.ProtocolError as error:
                         log.warning("Invalid message from client: %s", error)
-                        sock.close()
-                        del client_sockets[sock]
+                        try:
+                            self._send_error(sock, str(error))
+                        except OSError:
+                            log.exception("Failed to send protocol error response")
+                        self._close_client(sock, client_sockets)
                         continue
-                    self.handle_client_request(sock, data)
+                    try:
+                        self.handle_client_request(sock, data)
+                    except OSError as error:
+                        log.info("Client connection failed while responding: %s", error)
+                        self._close_client(sock, client_sockets)
+                    except Exception:
+                        log.exception("Unexpected error while handling client request")
+                        try:
+                            self._send_error(sock, "Internal server error")
+                        except OSError:
+                            log.exception("Failed to send internal server error response")
+                            self._close_client(sock, client_sockets)
+
+    @staticmethod
+    def _close_client(sock: socket.socket, client_sockets: dict) -> None:
+        client_sockets.pop(sock, None)
+        try:
+            sock.close()
+        except OSError:
+            log.exception("Failed to close client socket")
+
+    def _send_error(self, sock: socket.socket, message: str) -> None:
+        sock.sendall(protocol.build_error_message(message))
 
 
     def handle_client_request(self, sock: socket, data: bytes):
         action, payload = data
         match action:
             case protocol.RequestType.REGISTER_USER:
-                newusername = payload["username"] + payload["password"]
-                response = protocol.build_message(protocol.Status.SUCCESS, { "username": newusername })
+                username = payload.get("username")
+                password = payload.get("password")
+                if isinstance(username, str) and isinstance(password, str):
+                    newusername = username + password
+                    print("newusername", newusername)
+                    response = protocol.build_message({"username": newusername})
+                else:
+                    response = protocol.build_error_message("Registration requires string username and password fields")
             case _:
-                response = protocol.build_message(protocol.Status.ERROR, { "error": "Unsupported action" })
+                response = protocol.build_error_message("Unsupported action")
         sock.sendall(response)
 
 
