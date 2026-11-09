@@ -11,7 +11,7 @@ import socket
 from enum import Enum
 from typing import Callable, List, Optional, Tuple, Union
 
-from client_protocol_structs import build_register_user_payload
+import client_protocol_structs as protocol
 
 
 class TxType(Enum):
@@ -83,7 +83,7 @@ class Connection:
         # TODO implement this
         pass
 
-    def req_register(self, user: str, password: str) -> str:
+    def req_register(self, username: str, password: str) -> str:
         """Register a new account.
 
         Args:
@@ -97,8 +97,12 @@ class Connection:
             RequestFailed: registration rejected (bad username/password, …).
             ConnectionError: connection lost.
         """
-        self.socket.send(build_register_user_payload(user, password))
-        return "EXAMPLE_ID"
+        self.socket.send(protocol.build_register_user_payload(username, password))
+        response = self.socket.recv(1024)
+        status, data = protocol.unpack_message(response)
+        print("req_register status", status)
+        print("req_register data", data)
+        return data["username"]
 
     def req_login(self, user: str, password: str, token: str) -> None:
         """Log in to an existing account on this connection.

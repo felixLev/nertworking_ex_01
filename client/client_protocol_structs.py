@@ -53,8 +53,8 @@ def unpack_message(payload: bytes) -> tuple[Status, object]:
     return status, message["data"]
 
 
-def build_register_user_payload(user: str, password: str) -> bytes:
+def build_register_user_payload(username: str, password: str) -> bytes:
     return build_message(RequestType.REGISTER_USER, {
-        'user': user,
+        'username': username,
         'password': password,
     })

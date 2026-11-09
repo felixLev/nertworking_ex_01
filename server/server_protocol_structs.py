@@ -19,7 +19,7 @@ class Status(IntEnum):
     ERROR                   = 2
 
 
-def build_message(status: str, data: object) -> None:
+def build_message(status: Status, data: object) -> None:
     encoded_message = json.dumps({
         "status": status,
         "data": data,

@@ -17,6 +17,8 @@ import select
 from bank import Bank
 from server_utils import Console
 
+import server_protocol_structs as protocol
+
 log = logging.getLogger("server")
 
 class UserData:
@@ -64,12 +66,28 @@ class Server:
                         del client_sockets[sock]
                         log.info("Client disconnected")
                         print("Client disconnected")
-                    # TODO: handle data sent on sockets
+                    self.handle_client_request(sock, data)
+
+
+    def handle_client_request(self, sock: socket, data: bytes):
+        action, payload = protocol.unpack_message(data)
+        print("server_loop action", action)
+        print("server_loop payload", payload)
+        response = None
+        match action:
+            case protocol.RequestType.REGISTER_USER:
+                newusername = payload["username"] + payload["password"]
+                response = protocol.build_message(protocol.Status.SUCCESS, { "username": newusername })
+            case _:
+                pass
+                # !error
+        sock.send(response)
 
 
     def _on_advance_time_request(self, user_input):
         self.bank.clock.advance_day()
-        print("time advanced")
+        print("Time advanced.", end=" ")
+        self.bank.announce_date()
 
     def _handle_create_user(self, username: str, password: str) -> str:
         user_id = self._generate_user_id()
