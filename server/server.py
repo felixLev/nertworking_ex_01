@@ -82,7 +82,8 @@ class Server:
                         self._close_client(sock, client_sockets)
                         continue
                     try:
-                        self.handle_client_request(sock, data)
+                        if self.handle_client_request(sock, data):
+                            client_sockets.pop(sock)
                     except OSError as error:
                         log.info("Client connection failed while responding: %s", error)
                         self._close_client(sock, client_sockets)
@@ -106,7 +107,7 @@ class Server:
         sock.sendall(protocol.build_error_message(message))
 
 
-    def handle_client_request(self, sock: socket, data: tuple[bytes, dict]):
+    def handle_client_request(self, sock: socket, data: tuple[bytes, dict]) -> bool:
         action, payload = data
         close_socket = False # states if we should close the socket after handling the request
         match action:
@@ -135,7 +136,7 @@ class Server:
                     response = protocol.build_error_message("Login requires username, password and user id fields")
             case protocol.RequestType.LOGOUT:
                 if sock not in self.logged_in_users:
-                    sock.close() # TODO: should we close the socket in this case?
+                    close_socket = True # TODO: should we close the socket in this case?
                     response = protocol.build_error_message("No logged in user was found")
                 else:
                     close_socket = True
@@ -146,6 +147,7 @@ class Server:
         sock.sendall(response)
         if close_socket:
             sock.close()
+        return close_socket
 
 
     def _on_advance_time_request(self, user_input):
