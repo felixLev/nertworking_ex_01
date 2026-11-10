@@ -24,6 +24,9 @@ class RequestType(IntEnum):
     CANCEL_STANDING_ORDER   = 7
     GET_LOANS               = 8
     LOGOUT                  = 9
+    DEPOSIT                 = 10
+    WITHDRAW                = 11
+    GET_HISTORY             = 12
 
 
 class Status(IntEnum):

@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import logging
 import random
+import re
 import string
 import time
 from datetime import date
@@ -40,7 +41,7 @@ class Server:
         
         self.console = Console()
 
-        self.users = []
+        self.users: list[UserData] = []
         self.logged_in_users = {}  # Maps sockets to the UserData's of the users that logged in with them
 
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -109,55 +110,138 @@ class Server:
 
     def handle_client_request(self, sock: socket, data: tuple[bytes, dict]) -> bool:
         action, payload = data
-        close_socket = False # states if we should close the socket after handling the request
-        match action:
-            case protocol.RequestType.REGISTER_USER:
-                username = payload.get("username")
-                password = payload.get("password")
-                if isinstance(username, str) and isinstance(password, str):
+        if not isinstance(payload, dict):
+            self._send_error(sock, "Request payload must be an object")
+            return False
+
+        close_socket = False
+        try:
+            match action:
+                case protocol.RequestType.REGISTER_USER:
+                    self._check_fields(payload, {"username", "password"})
+                    username, password = payload["username"], payload["password"]
+                    if not isinstance(username, str) or not re.fullmatch(
+                            r"[A-Za-z0-9_]{3,20}", username):
+                        raise ValueError("Username must be 3-20 letters, digits or underscores")
+                    if not isinstance(password, str) or len(password) < 4:
+                        raise ValueError("Password must contain at least 4 characters")
                     user_id = self._handle_create_user(username, password)
-                    newusername = username + password
-                    print("newusername", newusername)
-                    response = protocol.build_message({"userid": user_id})
-                else:
-                    response = protocol.build_error_message("Registration requires string username and password fields")
-            case protocol.RequestType.LOGIN:
-                username = payload.get("username")
-                password = payload.get("password")
-                user_id = payload.get("user_id")
-                if isinstance(username, str) and isinstance(password, str) and isinstance(user_id, str):
-                    login_success = False
-                    for user in self.users:
-                        if user.username == username and user.password == password and user.user_id == user_id:
-                            self.logged_in_users[sock] = user
-                            login_success = True
-                    response = protocol.build_message({"status": int(login_success)})
-                else:
-                    response = protocol.build_error_message("Login requires username, password and user id fields")
-            case protocol.RequestType.LOGOUT:
-                if sock not in self.logged_in_users:
-                    close_socket = True # TODO: should we close the socket in this case?
-                    response = protocol.build_error_message("No logged in user was found")
-                else:
-                    close_socket = True
-                    response = protocol.build_message({"status": 1})
+                    result = {"userid": user_id}
+                case protocol.RequestType.LOGIN:
+                    self._check_fields(payload, {"username", "password", "user_id"})
+                    username, password, user_id = (
+                        payload["username"], payload["password"], payload["user_id"])
+                    if not all(isinstance(value, str) for value in (username, password, user_id)):
+                        raise ValueError("Login requires string username, password and user id fields")
+                    user = next((candidate for candidate in self.users
+                                 if candidate.username == username
+                                 and candidate.password == password
+                                 and candidate.user_id == user_id), None)
+                    if user is None:
+                        raise ValueError("Wrong credentials or unknown user id")
+                    if sock in self.logged_in_users:
+                        raise ValueError("This connection already has a logged-in user")
+                    self.logged_in_users[sock] = user
+                    result = {"status": 1}
+                case protocol.RequestType.LOGOUT:
+                    self._check_fields(payload, set())
+                    self._require_logged_in(sock)
                     self.logged_in_users.pop(sock)
-            case _:
-                response = protocol.build_error_message("Unsupported action")
+                    result = {"status": 1}
+                    close_socket = True
+                case protocol.RequestType.GET_BALANCE:
+                    self._check_fields(payload, set())
+                    user = self._require_logged_in(sock)
+                    result = {"balance": self.bank.get_balance(user.user_id)}
+                case protocol.RequestType.DEPOSIT:
+                    self._check_fields(payload, {"amount"})
+                    user = self._require_logged_in(sock)
+                    result = {"balance": self.bank.deposit(user.user_id, payload["amount"])}
+                case protocol.RequestType.WITHDRAW:
+                    self._check_fields(payload, {"amount"})
+                    user = self._require_logged_in(sock)
+                    result = {"balance": self.bank.withdraw(user.user_id, payload["amount"])}
+                case protocol.RequestType.TRANSFER:
+                    self._check_fields(payload, {"target", "amount"})
+                    user = self._require_logged_in(sock)
+                    target = payload["target"]
+                    if not isinstance(target, str):
+                        raise ValueError("Target account id must be a string")
+                    result = {"balance": self.bank.transfer(
+                        user.user_id, target, payload["amount"])}
+                case protocol.RequestType.STANDING_ORDER:
+                    self._check_fields(payload, {"target", "amount", "count"})
+                    user = self._require_logged_in(sock)
+                    target, count_text = payload["target"], payload["count"]
+                    if not isinstance(target, str):
+                        raise ValueError("Target account id must be a string")
+                    if not isinstance(count_text, str) or not re.fullmatch(r"[0-9]+", count_text):
+                        raise ValueError("Payment count must be a non-negative integer string")
+                    result = {"so_id": self.bank.create_standing_order(
+                        user.user_id, target, payload["amount"], int(count_text))}
+                case protocol.RequestType.TAKE_LOAN:
+                    self._check_fields(payload, {"amount"})
+                    user = self._require_logged_in(sock)
+                    loan_id, balance = self.bank.take_loan(user.user_id, payload["amount"])
+                    result = {"loan_id": loan_id, "balance": balance}
+                case protocol.RequestType.CANCEL_STANDING_ORDER:
+                    self._check_fields(payload, {"so_id"})
+                    user = self._require_logged_in(sock)
+                    order_id = payload["so_id"]
+                    if isinstance(order_id, str) and re.fullmatch(r"[0-9]+", order_id):
+                        order_id = int(order_id)
+                    self.bank.cancel_standing_order(user.user_id, order_id)
+                    result = {"status": 1}
+                case protocol.RequestType.GET_LOANS:
+                    self._check_fields(payload, set())
+                    user = self._require_logged_in(sock)
+                    result = {"loans": self.bank.get_loans(user.user_id)}
+                case protocol.RequestType.GET_HISTORY:
+                    self._check_fields(payload, set(), {"from_ts", "to_ts"})
+                    user = self._require_logged_in(sock)
+                    result = {"history": self.bank.get_history(
+                        user.user_id, payload.get("from_ts"), payload.get("to_ts"))}
+                case _:
+                    raise ValueError("Unsupported action")
+            response = protocol.build_message(result)
+        except ValueError as error:
+            response = protocol.build_error_message(str(error))
+
         sock.sendall(response)
         if close_socket:
             sock.close()
         return close_socket
 
 
+    @staticmethod
+    def _check_fields(payload: dict, required: set[str],
+                      optional: set[str] = frozenset()) -> None:
+        missing = required - payload.keys()
+        unknown = payload.keys() - required - optional
+        if missing:
+            raise ValueError(f"Missing request field(s): {', '.join(sorted(missing))}")
+        if unknown:
+            raise ValueError(f"Unexpected request field(s): {', '.join(sorted(unknown))}")
+
+
+    def _require_logged_in(self, sock: socket.socket) -> UserData:
+        user = self.logged_in_users.get(sock)
+        if user is None:
+            raise ValueError("Login is required for this request")
+        return user
+
+
     def _on_advance_time_request(self, user_input):
-        self.bank.clock.advance_day()
+        self.bank.advance_day()
         print("Time advanced")
         self.bank.announce_date()
 
     def _handle_create_user(self, username: str, password: str) -> str:
         user_id = self._generate_user_id()
+        while user_id in self.bank.accounts:
+            user_id = self._generate_user_id()
         self.users.append(UserData(username, password, user_id))
+        self.bank.add_account(user_id, username)
         return user_id
 
     @staticmethod
