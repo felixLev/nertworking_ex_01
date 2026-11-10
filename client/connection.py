@@ -158,6 +158,7 @@ class Connection:
             raise RequestFailed("logout response is missing a status")
         if data["status"] != 1:
             raise RequestFailed("unknown logout status")
+        self.close()
 
 
     def req_get_balance(self) -> str:
