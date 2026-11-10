@@ -111,9 +111,10 @@ class Server:
                 username = payload.get("username")
                 password = payload.get("password")
                 if isinstance(username, str) and isinstance(password, str):
+                    user_id = self._handle_create_user(username, password)
                     newusername = username + password
                     print("newusername", newusername)
-                    response = protocol.build_message({"username": newusername})
+                    response = protocol.build_message({"userid": user_id})
                 else:
                     response = protocol.build_error_message("Registration requires string username and password fields")
             case _:

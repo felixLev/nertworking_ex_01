@@ -104,9 +104,9 @@ class Connection:
             )
         except ProtocolError as e:
             raise RequestFailed(str(e))
-        if not isinstance(data, dict) or not isinstance(data.get("username"), str):
-            raise RequestFailed("registration response is missing a string username")
-        return data["username"]
+        if not isinstance(data, dict) or not isinstance(data.get("userid"), str):
+            raise RequestFailed("registration response is missing a string userid")
+        return data["userid"]
 
 
     def _send_request(self, message: bytes) -> tuple[protocol.Status, object]:
