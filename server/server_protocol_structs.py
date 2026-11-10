@@ -19,6 +19,7 @@ class RequestType(IntEnum):
     TAKE_LOAN               = 6
     CANCEL_STANDING_ORDER   = 7
     GET_LOANS               = 8
+    LOGOUT                  = 9
 
 
 class Status(IntEnum):

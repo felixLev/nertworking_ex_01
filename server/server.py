@@ -27,7 +27,6 @@ class UserData:
         self.username = username
         self.password = password
         self.user_id = user_id
-        self.logged_in = False
 
 ### Do not remove any of the existing functions or change their signatures. ###
 ### You can add new functions and classes if needed. ###
@@ -42,6 +41,7 @@ class Server:
         self.console = Console()
 
         self.users = []
+        self.logged_in_users = {}  # Maps sockets to the UserData's of the users that logged in with them
 
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.bind((self.host, self.port))
@@ -50,7 +50,7 @@ class Server:
 
     def server_loop(self) -> None:
         """Main server loop for the bank server."""
-        client_sockets = {} # maps client sockets to the data that was received by them but still wasn't processed
+        client_sockets = {} # TODO: change to list
         while True:
             self.console.poll(self._on_advance_time_request)
             socket_list = list(client_sockets.keys()) + [self.socket]
@@ -108,6 +108,7 @@ class Server:
 
     def handle_client_request(self, sock: socket, data: tuple[bytes, dict]):
         action, payload = data
+        close_socket = False # states if we should close the socket after handling the request
         match action:
             case protocol.RequestType.REGISTER_USER:
                 username = payload.get("username")
@@ -127,18 +128,29 @@ class Server:
                     login_success = False
                     for user in self.users:
                         if user.username == username and user.password == password and user.user_id == user_id:
+                            self.logged_in_users[sock] = user
                             login_success = True
                     response = protocol.build_message({"status": int(login_success)})
                 else:
                     response = protocol.build_error_message("Login requires username, password and user id fields")
+            case protocol.RequestType.LOGOUT:
+                if sock not in self.logged_in_users:
+                    sock.close() # TODO: should we close the socket in this case?
+                    response = protocol.build_error_message("No logged in user was found")
+                else:
+                    close_socket = True
+                    response = protocol.build_message({"status": 1})
+                    self.logged_in_users.pop(sock)
             case _:
                 response = protocol.build_error_message("Unsupported action")
         sock.sendall(response)
+        if close_socket:
+            sock.close()
 
 
     def _on_advance_time_request(self, user_input):
         self.bank.clock.advance_day()
-        print("Time advanced.", end=" ")
+        print("Time advanced")
         self.bank.announce_date()
 
     def _handle_create_user(self, username: str, password: str) -> str:

@@ -23,6 +23,7 @@ class RequestType(IntEnum):
     TAKE_LOAN               = 6
     CANCEL_STANDING_ORDER   = 7
     GET_LOANS               = 8
+    LOGOUT                  = 9
 
 
 class Status(IntEnum):
@@ -93,3 +94,6 @@ def build_login_payload(username: str, password: str, token: str) -> bytes:
         'password': password,
         'user_id': token,
     })
+
+def build_logout_payload() -> bytes:
+    return build_message(RequestType.LOGOUT, {})

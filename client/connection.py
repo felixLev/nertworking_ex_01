@@ -148,8 +148,16 @@ class Connection:
         Returns:
             None.
         """
-        # TODO implement this
-        pass
+        try :
+            status, data = self._send_request(
+                protocol.build_logout_payload()
+            )
+        except ProtocolError as e:
+            raise RequestFailed(str(e))
+        if not isinstance(data, dict) or not isinstance(data.get("status"), int):
+            raise RequestFailed("logout response is missing a status")
+        if data["status"] != 1:
+            raise RequestFailed("unknown logout status")
 
 
     def req_get_balance(self) -> str:
