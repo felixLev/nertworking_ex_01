@@ -41,6 +41,7 @@ class StandingOrder:
     remaining: Optional[int]
     executed: int
     next_run: date
+    day_of_month: int
     active: bool = True
 
 
@@ -173,7 +174,6 @@ class Bank:
     def create_standing_order(self, sender_id: str, target_id: str,
                               amount: object, count: int) -> int:
         sender = self._account(sender_id)
-        recipient = self._account(target_id)
         if sender_id == target_id:
             raise ValueError("Cannot create a standing order to the same account")
         if isinstance(count, bool) or not isinstance(count, int) or count < 0:
@@ -181,12 +181,12 @@ class Bank:
         cents = self.parse_amount(amount)
         order_id = self._next_order_id
         self._next_order_id += 1
-        order = StandingOrder(order_id, target_id, cents, count or None, 0,
-                              self.clock.today())
-        self._execute_standing_order(sender, recipient, order)
-        if order.remaining != 0:
-            order.next_run = self._next_month(order.next_run)
-            sender.standing_orders[order_id] = order
+        today = self.clock.today()
+        order = StandingOrder(
+            order_id, target_id, cents, count or None, 0, today, today.day,
+        )
+        sender.standing_orders[order_id] = order
+        self.run_due()
         return order_id
 
     def _execute_standing_order(self, sender: Account, recipient: Account,
@@ -203,14 +203,11 @@ class Bank:
                      order.amount_cents, note)
 
     @staticmethod
-    def _next_month(value: date) -> date:
-        year = value.year + (1 if value.month == 12 else 0)
-        month = 1 if value.month == 12 else value.month + 1
-        if month == 12:
-            last_day = 31
-        else:
-            last_day = (date(year, month + 1, 1) - timedelta(days=1)).day
-        return date(year, month, min(value.day, last_day))
+    def _next_month(value: date, day_of_month: int) -> date:
+        next_month = value.replace(day=1) + timedelta(days=32)
+        first_day = next_month.replace(day=1)
+        last_day = (first_day + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+        return first_day.replace(day=min(day_of_month, last_day.day))
 
     def get_standing_orders(self, user_id: str) -> list[tuple[int, str, str, str, int, Optional[int], str]]:
         account = self._account(user_id)
@@ -233,6 +230,8 @@ class Bank:
 
     def take_loan(self, user_id: str, amount: object) -> tuple[int, str]:
         account = self._account(user_id)
+        if account.balance_cents < 0 or any(not loan.paid for loan in account.loans.values()):
+            raise ValueError("Loans are available only to customers with no outstanding debt")
         principal = self.parse_amount(amount)
         with localcontext() as context:
             context.prec = max(context.prec, len(str(principal)) + 3)
@@ -289,7 +288,8 @@ class Bank:
                         order.active = False
                         account.standing_orders.pop(order.order_id, None)
                     else:
-                        order.next_run = self._next_month(order.next_run)
+                        order.next_run = self._next_month(
+                            order.next_run, order.day_of_month)
 
     def advance_day(self) -> date:
         """Close the current bank day, charge overdraft interest, and process due items."""

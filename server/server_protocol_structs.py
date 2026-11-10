@@ -23,6 +23,7 @@ class RequestType(IntEnum):
     DEPOSIT                 = 10
     WITHDRAW                = 11
     GET_HISTORY             = 12
+    GET_STANDING_ORDERS     = 13
 
 
 class Status(IntEnum):

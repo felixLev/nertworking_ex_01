@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import socket
 from enum import Enum
-from typing import Callable, List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 import client_protocol_structs as protocol
 
@@ -78,6 +78,9 @@ class Connection:
 
         Returns:
             None.
+
+        Raises:
+            OSError: if closing the socket fails.
         """
         self.socket.close()
         self.is_connected = False
@@ -86,7 +89,7 @@ class Connection:
         """Register a new account.
 
         Args:
-            user: Account name (3-20 letters/digits/``_``). Need not be unique.
+            username: Account name (3-20 letters/digits/``_``). Need not be unique.
             password: Password (at least 4 characters).
 
         Returns:
@@ -96,23 +99,51 @@ class Connection:
             RequestFailed: registration rejected (bad username/password, …).
             ConnectionError: connection lost.
         """
-        try :
-            status, data = self._send_request(
-                protocol.build_register_user_payload(username, password)
-            )
-        except ProtocolError as e:
-            raise RequestFailed(str(e))
-        if not isinstance(data, dict) or not isinstance(data.get("userid"), str):
+        data = self._send_action(
+            protocol.RequestType.REGISTER_USER,
+            {"username": username, "password": password},
+        )
+        if not isinstance(data.get("userid"), str):
             raise RequestFailed("registration response is missing a string userid")
         return data["userid"]
 
 
-    def _send_request(self, message: bytes) -> tuple[protocol.Status, object]:
+    def _send_request(self, message: bytes) -> dict:
         try:
             self.socket.sendall(message)
         except OSError as error:
             raise ConnectionError(f"failed to send request: {error}") from error
-        return protocol.receive_message(self.socket)
+        try:
+            _, data = protocol.receive_message(self.socket)
+        except ProtocolError as error:
+            raise RequestFailed(str(error)) from error
+        if not isinstance(data, dict):
+            raise RequestFailed("server response data must be an object")
+        return data
+
+    def _send_action(self, action: protocol.RequestType,
+                     payload: dict[str, object]) -> dict:
+        return self._send_request(protocol.build_message(action, payload))
+
+    @staticmethod
+    def _required_string(data: dict, key: str) -> str:
+        value = data.get(key)
+        if not isinstance(value, str):
+            raise RequestFailed(f"server response is missing a string {key}")
+        return value
+
+    @staticmethod
+    def _required_list(data: dict, key: str) -> list:
+        value = data.get(key)
+        if not isinstance(value, list):
+            raise RequestFailed(f"server response is missing the {key} list")
+        return value
+
+    @staticmethod
+    def _require_success(data: dict, operation: str) -> None:
+        status = data.get("status")
+        if isinstance(status, bool) or not isinstance(status, int) or status != 1:
+            raise RequestFailed(f"server returned an invalid {operation} response")
 
 
     def req_login(self, user: str, password: str, token: str) -> None:
@@ -127,19 +158,15 @@ class Connection:
             None on success.
 
         Raises:
-            RequestFailed: wrong credentials / unknown user id.
+            RequestFailed: wrong credentials, unknown user id, or invalid server response.
             ConnectionError: connection lost.
         """
-        try :
-            status, data = self._send_request(
-                protocol.build_login_payload(user, password, token)
-            )
-        except ProtocolError as e:
-            raise RequestFailed(str(e))
-        if not isinstance(data, dict) or not isinstance(data.get("status"), int):
-            raise RequestFailed("registration response is missing a status")
-        if not data["status"]:
-            raise RequestFailed("wrong credentials / unknown user id")
+        data = self._send_action(protocol.RequestType.LOGIN, {
+            "username": user,
+            "password": password,
+            "user_id": token,
+        })
+        self._require_success(data, "login")
 
 
     def req_logout(self) -> None:
@@ -147,18 +174,17 @@ class Connection:
 
         Returns:
             None.
+
+        Raises:
+            RequestFailed: logout rejected or server response invalid.
+            ConnectionError: connection lost.
+            OSError: closing the socket fails.
         """
-        try :
-            status, data = self._send_request(
-                protocol.build_logout_payload()
-            )
-        except ProtocolError as e:
-            raise RequestFailed(str(e))
-        if not isinstance(data, dict) or not isinstance(data.get("status"), int):
-            raise RequestFailed("logout response is missing a status")
-        if data["status"] != 1:
-            raise RequestFailed("unknown logout status")
-        self.close()
+        try:
+            data = self._send_action(protocol.RequestType.LOGOUT, {})
+            self._require_success(data, "logout")
+        finally:
+            self.close()
 
 
     def req_get_balance(self) -> str:
@@ -171,8 +197,8 @@ class Connection:
             RequestFailed: not logged in or server error.
             ConnectionError: connection lost.
         """
-        # TODO implement this
-        return "0.00"
+        data = self._send_action(protocol.RequestType.GET_BALANCE, {})
+        return self._required_string(data, "balance")
 
 
     def req_deposit(self, amount: str) -> str:
@@ -188,8 +214,8 @@ class Connection:
             RequestFailed: invalid amount or not logged in.
             ConnectionError: connection lost.
         """
-        # TODO implement this
-        return "0.00"
+        data = self._send_action(protocol.RequestType.DEPOSIT, {"amount": amount})
+        return self._required_string(data, "balance")
 
 
     def req_withdraw(self, amount: str) -> str:
@@ -205,8 +231,8 @@ class Connection:
             RequestFailed: invalid amount or not logged in.
             ConnectionError: connection lost.
         """
-        # TODO implement this
-        return "0.00"
+        data = self._send_action(protocol.RequestType.WITHDRAW, {"amount": amount})
+        return self._required_string(data, "balance")
 
 
     def req_transfer(self, target: str, amount: str) -> str:
@@ -223,17 +249,20 @@ class Connection:
             RequestFailed: bad amount, unknown target, self-transfer, …
             ConnectionError: connection lost.
         """
-        # TODO implement this
-        return "0.00"
+        data = self._send_action(protocol.RequestType.TRANSFER, {
+            "target": target,
+            "amount": amount,
+        })
+        return self._required_string(data, "balance")
 
 
     def req_schedule_so(self, target: str, amount: str, count: str) -> int:
-        """Create a monthly standing order (first payment today).
+        """Create a recurring transfer with its first payment today.
 
         Args:
             target: Payee user id (token).
             amount: Amount per payment (positive decimal string).
-            count: Number of payments as a digit string; ``\"0\"`` means until cancelled.
+            count: Number of payments as a digit string; blank or ``\"0\"`` means indefinitely.
 
         Returns:
             The new standing-order id (positive int).
@@ -242,8 +271,20 @@ class Connection:
             RequestFailed: validation error or unknown target.
             ConnectionError: connection lost.
         """
-        # TODO implement this
-        return 1
+        if not isinstance(count, str):
+            raise RequestFailed("Payment count must be a non-negative integer")
+        count = count.strip() or "0"
+        if not count.isascii() or not count.isdigit():
+            raise RequestFailed("Payment count must be a non-negative integer")
+        data = self._send_action(protocol.RequestType.STANDING_ORDER, {
+            "target": target,
+            "amount": amount,
+            "count": count,
+        })
+        order_id = data.get("so_id")
+        if isinstance(order_id, bool) or not isinstance(order_id, int) or order_id <= 0:
+            raise RequestFailed("server response is missing a valid standing-order id")
+        return order_id
 
 
     def req_get_so_list(self) -> List[Tuple[int, str, str, str, int, Optional[int], str]]:
@@ -260,16 +301,30 @@ class Connection:
             * ``counterparty_name`` (str) — payee account name
             * ``amount`` (str) — per-payment amount, two decimals
             * ``executed`` (int) — how many payments have run
-            * ``remaining`` (int | None) — payments left, or ``None`` if until cancelled
+            * ``remaining`` (int | None) — payments left, or ``None`` if indefinite
             * ``next_run`` (str) — next payment date ``YYYY-MM-DD``
 
         Raises:
             RequestFailed: not logged in or server error.
             ConnectionError: connection lost.
         """
-        # TODO implement this
-        return [(1, "EXAMPLE_ID1", "EXAMPLE_NAME1", "0.00", 1, 2, "2026-11-12"),
-                (2, "EXAMPLE_ID2", "EXAMPLE_NAME2", "0.00", 4, None, "2026-11-20")]
+        data = self._send_action(protocol.RequestType.GET_STANDING_ORDERS, {})
+        rows = self._required_list(data, "standing_orders")
+        result = []
+        for row in rows:
+            if not isinstance(row, list) or len(row) != 7:
+                raise RequestFailed("server returned an invalid standing-order entry")
+            order_id, token, name, amount, executed, remaining, next_run = row
+            if (isinstance(order_id, bool) or not isinstance(order_id, int)
+                    or not isinstance(token, str) or not isinstance(name, str)
+                    or not isinstance(amount, str)
+                    or isinstance(executed, bool) or not isinstance(executed, int)
+                    or (remaining is not None and (
+                        isinstance(remaining, bool) or not isinstance(remaining, int)))
+                    or not isinstance(next_run, str)):
+                raise RequestFailed("server returned an invalid standing-order entry")
+            result.append((order_id, token, name, amount, executed, remaining, next_run))
+        return result
 
 
     def req_cancel_so(self, so_id: Union[str, int]) -> None:
@@ -285,8 +340,13 @@ class Connection:
             RequestFailed: unknown standing order or not owned by this account.
             ConnectionError: connection lost.
         """
-        # TODO implement this
-        pass
+        if isinstance(so_id, str):
+            if not so_id.isascii() or not so_id.isdigit():
+                raise RequestFailed("Standing-order id must be a positive integer")
+            so_id = int(so_id)
+        if isinstance(so_id, bool) or not isinstance(so_id, int) or so_id <= 0:
+            raise RequestFailed("Standing-order id must be a positive integer")
+        self._send_action(protocol.RequestType.CANCEL_STANDING_ORDER, {"so_id": so_id})
 
 
     def req_loan(self, amount: str) -> Tuple[int, str]:
@@ -303,8 +363,12 @@ class Connection:
             RequestFailed: invalid amount or not logged in.
             ConnectionError: connection lost.
         """
-        # TODO implement this
-        return (1, "0.00")
+        data = self._send_action(protocol.RequestType.TAKE_LOAN, {"amount": amount})
+        loan_id, balance = data.get("loan_id"), data.get("balance")
+        if (isinstance(loan_id, bool) or not isinstance(loan_id, int) or loan_id <= 0
+                or not isinstance(balance, str)):
+            raise RequestFailed("server returned an invalid loan response")
+        return loan_id, balance
 
 
     def req_get_loans(self) -> List[Tuple[int, str, str, str, str]]:
@@ -325,8 +389,16 @@ class Connection:
             RequestFailed: not logged in or server error.
             ConnectionError: connection lost.
         """
-        return [(1, "100.00", "105.00", "2026-11-12", "2026-11-12"),
-                (2, "200.00", "210.00", "2026-11-20", "2026-11-20")]
+        data = self._send_action(protocol.RequestType.GET_LOANS, {})
+        rows = self._required_list(data, "loans")
+        result = []
+        for row in rows:
+            if (not isinstance(row, list) or len(row) != 5
+                    or isinstance(row[0], bool) or not isinstance(row[0], int)
+                    or not all(isinstance(value, str) for value in row[1:])):
+                raise RequestFailed("server returned an invalid loan entry")
+            result.append(tuple(row))
+        return result
 
 
     def req_history(self, from_ts: Optional[float] = None,
@@ -355,5 +427,22 @@ class Connection:
             RequestFailed: not logged in or bad timestamps.
             ConnectionError: connection lost.
         """
-        return [("2026-11-12 14:15:20", TxType.TRANSFER_OUT, "EXAMPLE_ID2", "EXAMPLE_NAME2", "100.00", "100.00", ""),
-                ("2026-11-12 14:13:20", TxType.DEPOSIT, "EXAMPLE_ID1", "EXAMPLE_NAME1", "200.00", "200.00", "")]
+        payload: dict[str, object] = {}
+        for key, timestamp in (("from_ts", from_ts), ("to_ts", to_ts)):
+            if timestamp is not None:
+                if isinstance(timestamp, bool) or not isinstance(timestamp, (int, float)):
+                    raise RequestFailed(f"{key} must be a number")
+                payload[key] = timestamp
+        data = self._send_action(protocol.RequestType.GET_HISTORY, payload)
+        rows = self._required_list(data, "history")
+        result = []
+        for row in rows:
+            if (not isinstance(row, list) or len(row) != 7
+                    or not all(isinstance(value, str) for value in row)):
+                raise RequestFailed("server returned an invalid history entry")
+            try:
+                tx_type = TxType(row[1])
+            except ValueError as error:
+                raise RequestFailed(f"server returned an unknown transaction type: {row[1]}") from error
+            result.append((row[0], tx_type, *row[2:]))
+        return result

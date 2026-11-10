@@ -179,6 +179,10 @@ class Server:
                         raise ValueError("Payment count must be a non-negative integer string")
                     result = {"so_id": self.bank.create_standing_order(
                         user.user_id, target, payload["amount"], int(count_text))}
+                case protocol.RequestType.GET_STANDING_ORDERS:
+                    self._check_fields(payload, set())
+                    user = self._require_logged_in(sock)
+                    result = {"standing_orders": self.bank.get_standing_orders(user.user_id)}
                 case protocol.RequestType.TAKE_LOAN:
                     self._check_fields(payload, {"amount"})
                     user = self._require_logged_in(sock)

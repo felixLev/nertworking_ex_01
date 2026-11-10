@@ -27,6 +27,7 @@ class RequestType(IntEnum):
     DEPOSIT                 = 10
     WITHDRAW                = 11
     GET_HISTORY             = 12
+    GET_STANDING_ORDERS     = 13
 
 
 class Status(IntEnum):
@@ -77,6 +78,8 @@ def receive_message(sock: socket.socket) -> tuple[Status, object]:
         raise RequestFailed(data["error"])
     if "data" not in message:
         raise ProtocolError("message is missing its data")
+    if not isinstance(data, dict):
+        raise ProtocolError("message data must be an object")
     return status, data
 
 
