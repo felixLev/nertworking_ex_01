@@ -83,8 +83,7 @@ class Server:
                         self._close_client(sock, client_sockets)
                         continue
                     try:
-                        if self.handle_client_request(sock, data):
-                            client_sockets.pop(sock)
+                        self.handle_client_request(sock, data)
                     except OSError as error:
                         log.info("Client connection failed while responding: %s", error)
                         self._close_client(sock, client_sockets)
@@ -108,13 +107,12 @@ class Server:
         sock.sendall(protocol.build_error_message(message))
 
 
-    def handle_client_request(self, sock: socket, data: tuple[bytes, dict]) -> bool:
+    def handle_client_request(self, sock: socket, data: tuple[bytes, dict]) -> None:
         action, payload = data
         if not isinstance(payload, dict):
             self._send_error(sock, "Request payload must be an object")
             return False
 
-        close_socket = False
         try:
             match action:
                 case protocol.RequestType.REGISTER_USER:
@@ -148,7 +146,6 @@ class Server:
                     self._require_logged_in(sock)
                     self.logged_in_users.pop(sock)
                     result = {"status": 1}
-                    close_socket = True
                 case protocol.RequestType.GET_BALANCE:
                     self._check_fields(payload, set())
                     user = self._require_logged_in(sock)
@@ -212,9 +209,6 @@ class Server:
             response = protocol.build_error_message(str(error))
 
         sock.sendall(response)
-        if close_socket:
-            sock.close()
-        return close_socket
 
 
     @staticmethod

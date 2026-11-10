@@ -69,7 +69,14 @@ class Connection:
         Raises:
             OSError / ConnectionError: if the server cannot be reached.
         """
-        self.socket.connect((host, port))
+        self.close()
+        new_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            new_socket.connect((host, port))
+        except OSError:
+            new_socket.close()
+            raise
+        self.socket = new_socket
         self.is_connected = True
 
 
@@ -84,6 +91,7 @@ class Connection:
         """
         self.socket.close()
         self.is_connected = False
+
 
     def req_register(self, username: str, password: str) -> str:
         """Register a new account.
@@ -180,11 +188,9 @@ class Connection:
             ConnectionError: connection lost.
             OSError: closing the socket fails.
         """
-        try:
-            data = self._send_action(protocol.RequestType.LOGOUT, {})
-            self._require_success(data, "logout")
-        finally:
-            self.close()
+        data = self._send_action(protocol.RequestType.LOGOUT, {})
+        self._require_success(data, "logout")
+        self.close()
 
 
     def req_get_balance(self) -> str:
