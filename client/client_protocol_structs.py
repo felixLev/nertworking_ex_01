@@ -86,3 +86,10 @@ def build_register_user_payload(username: str, password: str) -> bytes:
         'username': username,
         'password': password,
     })
+
+def build_login_payload(username: str, password: str, token: str) -> bytes:
+    return build_message(RequestType.LOGIN, {
+        'username': username,
+        'password': password,
+        'user_id': token,
+    })

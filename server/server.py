@@ -26,6 +26,8 @@ class UserData:
     def __init__(self, username: str, password: str, user_id: str) -> None:
         self.username = username
         self.password = password
+        self.user_id = user_id
+        self.logged_in = False
 
 ### Do not remove any of the existing functions or change their signatures. ###
 ### You can add new functions and classes if needed. ###
@@ -104,7 +106,7 @@ class Server:
         sock.sendall(protocol.build_error_message(message))
 
 
-    def handle_client_request(self, sock: socket, data: bytes):
+    def handle_client_request(self, sock: socket, data: tuple[bytes, dict]):
         action, payload = data
         match action:
             case protocol.RequestType.REGISTER_USER:
@@ -117,6 +119,18 @@ class Server:
                     response = protocol.build_message({"userid": user_id})
                 else:
                     response = protocol.build_error_message("Registration requires string username and password fields")
+            case protocol.RequestType.LOGIN:
+                username = payload.get("username")
+                password = payload.get("password")
+                user_id = payload.get("user_id")
+                if isinstance(username, str) and isinstance(password, str) and isinstance(user_id, str):
+                    login_success = False
+                    for user in self.users:
+                        if user.username == username and user.password == password and user.user_id == user_id:
+                            login_success = True
+                    response = protocol.build_message({"status": int(login_success)})
+                else:
+                    response = protocol.build_error_message("Login requires username, password and user id fields")
             case _:
                 response = protocol.build_error_message("Unsupported action")
         sock.sendall(response)

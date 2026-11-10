@@ -46,13 +46,13 @@ class Connection:
 
     def __init__(self):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.is_connected = False
 
 
     @property
     def connected(self) -> bool:
         """Returns True if a TCP connection to the server is currently open."""
-        # TODO implement this
-        pass
+        return self.is_connected
 
 
     def connect(self, host: str, port: int) -> None:
@@ -69,9 +69,8 @@ class Connection:
         Raises:
             OSError / ConnectionError: if the server cannot be reached.
         """
-        # TODO implement this
-        print("trying to connect")
         self.socket.connect((host, port))
+        self.is_connected = True
 
 
     def close(self) -> None:
@@ -80,9 +79,8 @@ class Connection:
         Returns:
             None.
         """
-        # TODO implement this
-        pass
-
+        self.socket.close()
+        self.is_connected = False
 
     def req_register(self, username: str, password: str) -> str:
         """Register a new account.
@@ -132,8 +130,16 @@ class Connection:
             RequestFailed: wrong credentials / unknown user id.
             ConnectionError: connection lost.
         """
-        # TODO implement this
-        pass
+        try :
+            status, data = self._send_request(
+                protocol.build_login_payload(user, password, token)
+            )
+        except ProtocolError as e:
+            raise RequestFailed(str(e))
+        if not isinstance(data, dict) or not isinstance(data.get("status"), int):
+            raise RequestFailed("registration response is missing a status")
+        if not data["status"]:
+            raise RequestFailed("wrong credentials / unknown user id")
 
 
     def req_logout(self) -> None:
