@@ -174,6 +174,7 @@ class Bank:
     def create_standing_order(self, sender_id: str, target_id: str,
                               amount: object, count: int) -> int:
         sender = self._account(sender_id)
+        self._account(target_id)  # Make sure that the target account exist
         if sender_id == target_id:
             raise ValueError("Cannot create a standing order to the same account")
         if isinstance(count, bool) or not isinstance(count, int) or count < 0:

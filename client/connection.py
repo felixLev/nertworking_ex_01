@@ -154,27 +154,26 @@ class Connection:
             raise RequestFailed(f"server returned an invalid {operation} response")
 
 
-    def req_login(self, user: str, password: str, token: str) -> None:
+    def req_login(self, token: str, password: str) -> str:
         """Log in to an existing account on this connection.
 
         Args:
-            user: Account name used at registration.
             password: Account password.
             token: User id (account id) issued at registration.
 
         Returns:
-            None on success.
+            username on success.
 
         Raises:
             RequestFailed: wrong credentials, unknown user id, or invalid server response.
             ConnectionError: connection lost.
         """
         data = self._send_action(protocol.RequestType.LOGIN, {
-            "username": user,
             "password": password,
             "user_id": token,
         })
         self._require_success(data, "login")
+        return self._required_string(data, 'user')
 
 
     def req_logout(self) -> None:

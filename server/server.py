@@ -23,7 +23,6 @@ import server_protocol_structs as protocol
 log = logging.getLogger("server")
 
 class UserData:
-    # TODO: store password hash?
     def __init__(self, username: str, password: str, user_id: str) -> None:
         self.username = username
         self.password = password
@@ -95,9 +94,9 @@ class Server:
                             log.exception("Failed to send internal server error response")
                             self._close_client(sock, client_sockets)
 
-    @staticmethod
-    def _close_client(sock: socket.socket, client_sockets: dict) -> None:
+    def _close_client(self, sock: socket.socket, client_sockets: dict) -> None:
         client_sockets.pop(sock, None)
+        self.logged_in_users.pop(sock, None)
         try:
             sock.close()
         except OSError:
@@ -126,21 +125,20 @@ class Server:
                     user_id = self._handle_create_user(username, password)
                     result = {"userid": user_id}
                 case protocol.RequestType.LOGIN:
-                    self._check_fields(payload, {"username", "password", "user_id"})
-                    username, password, user_id = (
-                        payload["username"], payload["password"], payload["user_id"])
-                    if not all(isinstance(value, str) for value in (username, password, user_id)):
+                    self._check_fields(payload, {"password", "user_id"})
+                    password, user_id = (
+                        payload["password"], payload["user_id"])
+                    if not all(isinstance(value, str) for value in (password, user_id)):
                         raise ValueError("Login requires string username, password and user id fields")
                     user = next((candidate for candidate in self.users
-                                 if candidate.username == username
-                                 and candidate.password == password
+                                 if candidate.password == password
                                  and candidate.user_id == user_id), None)
                     if user is None:
                         raise ValueError("Wrong credentials or unknown user id")
                     if sock in self.logged_in_users:
                         raise ValueError("This connection already has a logged-in user")
                     self.logged_in_users[sock] = user
-                    result = {"status": 1}
+                    result = {"status": 1, "user": user.username}
                 case protocol.RequestType.LOGOUT:
                     self._check_fields(payload, set())
                     self._require_logged_in(sock)
@@ -244,11 +242,8 @@ class Server:
 
     @staticmethod
     def _generate_user_id():
-        """
-        generates a 10 letters user ID
-        TODO: maybe make sure the same uid isn't generated twice?
-        """
-        return ''.join(random.choices(string.ascii_letters + string.digits, k=10))
+        """Generates a 10-character uppercase A-Z0-9 user ID."""
+        return ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
 
 ### Do not touch anything below this line. ###
 def parse_date(text: str) -> date:
